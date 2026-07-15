@@ -243,7 +243,6 @@ Grounded Answer
 - Hugging Face Inference API
 - LangChain
 - Llama 3
-- sentence-transformers/all-MiniLM-L6-v2
 
 ## Frontend
 
