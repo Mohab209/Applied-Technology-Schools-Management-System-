@@ -75,6 +75,22 @@ def update_school(id: int, school_data: SchoolUpdate, db: Session = Depends(get_
 
     return school
 
+@app.delete("/schools/{id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_school(
+    id: int, 
+    db: Session = Depends(get_db), 
+    _: None = Depends(verify_api_key)
+):
+    school = db.query(School).filter(School.id == id).first()
+    
+    if not school:
+        raise HTTPException(status_code=404, detail="School not found")
+    
+    db.delete(school)
+    db.commit()
+    
+    return None
+
 @app.post("/llm/extract-school", response_model=SchoolResponse)
 async def extract_school_endpoint(request: SchoolExtractionRequest, db: Session = Depends(get_db), _: None = Depends(verify_api_key),):
     school_data = await extract_school(text=request.text, provider=request.provider,)

@@ -24,19 +24,31 @@ except Exception:
     API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
     SYSTEM_API_KEY = os.getenv("API_KEY")
 
-# تصميم واجهة المستخدم بالـ CSS لتحسين المظهر العربي والاتجاهات
+# تصميم واجهة المستخدم بالـ CSS لتحسين المظهر العربي والاتجاهات دون تخريب الـ Sidebar عند الإغلاق
 st.markdown("""
     <style>
-    .reportview-container {
+    /* تطبيق RTL على الحاوية الرئيسية فقط وتجنب الـ Sidebar */
+    .main .block-container {
         direction: rtl;
         text-align: right;
     }
-    h1, h2, h3, h4, p, span, div {
+    /* ضمان محاذاة العناوين والنصوص داخل المحتوى الأساسي */
+    .main h1, .main h2, .main h3, .main h4, .main p, .main span, .main div {
         direction: rtl;
         text-align: right;
     }
     .stButton>button {
         width: 100%;
+    }
+    /* تنسيق خاص لزر الحذف لتمييزه */
+    .delete-btn button {
+        background-color: #ff4b4b !important;
+        color: white !important;
+        border: none !important;
+    }
+    .delete-btn button:hover {
+        background-color: #ff3333 !important;
+        color: white !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -76,6 +88,18 @@ if is_admin:
 
 menu = st.sidebar.selectbox("اختر القسم المتاح لك:", available_menus)
 
+# --- دالة مساعدة لحذف مدرسة من الباك إند ---
+def delete_school_request(school_id):
+    try:
+        response = requests.delete(f"{API_BASE_URL}/schools/{school_id}", headers=headers)
+        if response.status_code in [200, 204]:
+            return True, "تم حذف المدرسة بنجاح من قاعدة البيانات!"
+        else:
+            detail = response.json().get("detail", response.text)
+            return False, f"فشل الحذف: {detail}"
+    except Exception as e:
+        return False, f"فشل الاتصال بالخادم: {e}"
+
 # --- 1. قسم السؤال والجواب (RAG) - [عام ومفتوح] ---
 if menu == "🤖 اسأل النظام الذكي (RAG)":
     st.header("🤖 اسأل مستندات المدارس")
@@ -114,14 +138,12 @@ elif menu == "🔍 البحث وعرض تفاصيل المدارس":
     st.write("اختر المدرسة التي ترغب في استعراض بياناتها بالكامل من القائمة بالأسفل:")
     
     try:
-        # جلب قائمة المدارس لتعبئة الـ Dropdown
         response = requests.get(f"{API_BASE_URL}/schools")
         if response.status_code == 200:
             schools = response.json()
             if not schools:
                 st.info("لا توجد مدارس مسجلة حالياً في النظام.")
             else:
-                # إنشاء اختيار تفاعلي للمدرسة
                 school_options = {s["arabic_name"]: s["id"] for s in schools}
                 selected_school_name = st.selectbox("ابحث عن المدرسة باختيار اسمها:", ["-- اختر مدرسة من القائمة --"] + list(school_options.keys()))
                 
@@ -129,7 +151,6 @@ elif menu == "🔍 البحث وعرض تفاصيل المدارس":
                     school_id = school_options[selected_school_name]
                     
                     with st.spinner("جاري جلب تفاصيل المدرسة..."):
-                        # استدعاء الـ Endpoint المخصصة لجلب مدرسة واحدة عبر الـ ID
                         detail_res = requests.get(f"{API_BASE_URL}/schools/{school_id}")
                         
                         if detail_res.status_code == 200:
@@ -219,33 +240,56 @@ elif menu == "➕ إضافة مدرسة يدوياً" and is_admin:
                     except Exception as e:
                         st.error(f"❌ فشل الاتصال بالخادم: {e}")
 
-# --- 4. قسم تعديل بيانات مدرسة [مؤمن ومحمي] ---
+# --- 4. قسم تعديل وحذف بيانات مدرسة [مؤمن ومحمي] ---
 elif menu == "✏️ تعديل بيانات مدرسة" and is_admin:
-    st.header("✏️ تعديل بيانات مدرسة مسجلة")
-    st.write("اختر المدرسة التي ترغب في تعديل بياناتها، وسيتم جلب بياناتها الحالية لتعديلها بحرية.")
+    st.header("✏️ تعديل وإدارة بيانات المدارس المسجلة")
+    st.write("اختر المدرسة التي ترغب في تعديل بياناتها أو حذفها.")
 
     try:
         schools_res = requests.get(f"{API_BASE_URL}/schools")
         if schools_res.status_code == 200:
             schools_list = schools_res.json()
             if not schools_list:
-                st.info("لا توجد مدارس مسجلة حالياً لتعديلها.")
+                st.info("لا توجد مدارس مسجلة حالياً لإدارتها.")
             else:
                 school_options = {s["arabic_name"]: s["id"] for s in schools_list}
-                selected_school_name = st.selectbox("اختر المدرسة لتعديلها:", ["-- اختر مدرسة للتعديل --"] + list(school_options.keys()))
+                selected_school_name = st.selectbox("اختر المدرسة المستهدفة:", ["-- اختر مدرسة --"] + list(school_options.keys()))
                 
-                if selected_school_name != "-- اختر مدرسة للتعديل --":
+                if selected_school_name != "-- اختر مدرسة --":
                     school_id = school_options[selected_school_name]
                     
                     # جلب تفاصيل المدرسة المحددة لتعبئة الفورم
-                    with st.spinner("جاري جلب تفاصيل المدرسة الحالية للتعديل..."):
+                    with st.spinner("جاري جلب تفاصيل المدرسة الحالية..."):
                         detail_res = requests.get(f"{API_BASE_URL}/schools/{school_id}")
                         
                         if detail_res.status_code == 200:
                             selected_school = detail_res.json()
                             
                             st.markdown("---")
-                            st.subheader(f"تحديث بيانات: {selected_school['arabic_name']}")
+                            
+                            # زر الحذف السريع والمباشر (مع تأكيد الأمان) خارج الفورم الرئيسي
+                            st.subheader("🗑️ منطقة الحذف السريع (إجراء خطير):")
+                            col_del, col_info = st.columns([1, 3])
+                            with col_del:
+                                # حيلة برمجية لجعل الزر يظهر باللون الأحمر عن طريق CSS المخصص المضاف بالأعلى
+                                st.markdown('<div class="delete-btn">', unsafe_allow_html=True)
+                                confirm_delete = st.button("احذف هذه المدرسة نهائياً! 🗑️")
+                                st.markdown('</div>', unsafe_allow_html=True)
+                            with col_info:
+                                st.warning("تنبيه: عملية الحذف نهائية ولا يمكن التراجع عنها بعد تأكيد الإجراء.")
+                            
+                            if confirm_delete:
+                                with st.spinner("جاري حذف المدرسة..."):
+                                    success, msg = delete_school_request(school_id)
+                                    if success:
+                                        st.success(msg)
+                                        st.balloons()
+                                        st.rerun()
+                                    else:
+                                        st.error(msg)
+                            
+                            st.markdown("---")
+                            st.subheader(f"🔄 تحديث بيانات: {selected_school['arabic_name']}")
                             
                             # نموذج التحديث
                             with st.form("edit_school_form"):
@@ -270,7 +314,6 @@ elif menu == "✏️ تعديل بيانات مدرسة" and is_admin:
                                 update_btn = st.form_submit_button("حفظ وتطبيق التعديلات")
                                 
                                 if update_btn:
-                                    # إعداد الحقول للتعديل (الباك إند يدعم PATCH وتعديل جزئي)
                                     payload = {
                                         "arabic_name": new_arabic_name,
                                         "english_name": new_english_name if new_english_name else None,
@@ -287,12 +330,11 @@ elif menu == "✏️ تعديل بيانات مدرسة" and is_admin:
                                     
                                     with st.spinner("جاري حفظ التعديلات بالسيرفر..."):
                                         try:
-                                            # إرسال طلب PATCH
                                             response = requests.patch(f"{API_BASE_URL}/schools/{school_id}", json=payload, headers=headers)
-                                            
                                             if response.status_code == 200:
                                                 st.success(f"🎉 تم تحديث بيانات مدرسة '{new_arabic_name}' بنجاح!")
                                                 st.balloons()
+                                                st.rerun()
                                             else:
                                                 st.error(f"❌ فشل التحديث: {response.text}")
                                         except Exception as e:
