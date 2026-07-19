@@ -1,4 +1,4 @@
-"""RAG service — Production-ready, dynamically filtered by school_id."""
+"""RAG service — chunking, embedding, storing, retrieving, generating."""
 import os
 from io import BytesIO
 from typing import Any, Optional
@@ -22,12 +22,14 @@ GROQ_MODEL = _groq_config["model"]
 HF_TOKEN = os.getenv("HF_TOKEN")
 HF_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 HF_EMBEDDING_URL = f"https://router.huggingface.co/hf-inference/models/{HF_EMBEDDING_MODEL}/pipeline/feature-extraction"
+EMBEDDING_DIM = 384
 
 if not HF_TOKEN:
     raise RuntimeError("HF_TOKEN not found in .env — required for embeddings")
 
-CHUNK_SIZE = 800
-CHUNK_OVERLAP = 150
+# إعدادات حجم Chunks مثالية للموسوعات المحدثة
+CHUNK_SIZE = 1500
+CHUNK_OVERLAP = 300
 
 _splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
@@ -36,27 +38,26 @@ _splitter = RecursiveCharacterTextSplitter(
     separators=["\n\n", "\n", "؟ ", "، ", ". ", " ", ""],
 )
 
+
 def extract_text_from_pdf_bytes(pdf_bytes: bytes) -> str:
-    """Extract all text from PDF bytes."""
     reader = PdfReader(BytesIO(pdf_bytes))
     text_parts = []
     for page in reader.pages:
         page_text = page.extract_text()
-        if page_text.strip():
+        if page_text:
             text_parts.append(page_text)
     return "\n\n".join(text_parts)
 
 
 def chunk_document(text: str, source: str) -> list[dict[str, Any]]:
-    """Split text into chunks and label metadata."""
     raw_chunks = _splitter.split_text(text)
     total = len(raw_chunks)
     return [
         {
-            "content": f"المستند المرجعي: {source}\nالنص التفصيلي: {chunk}",
+            "content": f"المستند المرجعي: {source}\nالمحتوى التفصيلي:\n{chunk}",
             "metadata": {
                 "source": source,
-                "chunk_index": i,
+                "chunk_index": i + 1,
                 "total_chunks": total,
             },
         }
@@ -65,7 +66,6 @@ def chunk_document(text: str, source: str) -> list[dict[str, Any]]:
 
 
 async def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Embed a batch of texts using HuggingFace Inference API."""
     if not texts:
         return []
     headers = {"Authorization": f"Bearer {HF_TOKEN}"}
@@ -78,10 +78,9 @@ async def embed_texts(texts: list[str]) -> list[list[float]]:
 
 
 async def ingest_document(pdf_bytes: bytes, filename: str, school_id: int, db: Session) -> int:
-    """Full ingest pipeline linking chunks to specific school_id."""
     text = extract_text_from_pdf_bytes(pdf_bytes)
     if not text.strip():
-        raise ValueError(f"No text extracted from {filename!r}.")
+        raise ValueError(f"No readable text found in {filename!r}.")
 
     chunks = chunk_document(text, source=filename)
     contents = [c["content"] for c in chunks]
@@ -92,7 +91,7 @@ async def ingest_document(pdf_bytes: bytes, filename: str, school_id: int, db: S
             content=chunk["content"],
             embedding=embedding,
             doc_metadata=chunk["metadata"],
-            school_id=school_id  # ربط ديناميكي
+            school_id=school_id
         )
         for chunk, embedding in zip(chunks, embeddings)
     ]
@@ -101,14 +100,12 @@ async def ingest_document(pdf_bytes: bytes, filename: str, school_id: int, db: S
     return len(docs)
 
 
-async def retrieve_top_k(query: str, db: Session, school_id: int, k: int = 6) -> list[tuple[Document, float]]:
-    """Strictly retrieve chunks filtered by school_id using cosine_distance."""
+async def retrieve_top_k(query: str, db: Session, school_id: int, k: int = 5) -> list[tuple[Document, float]]:
     query_embeddings = await embed_texts([query])
     query_vec = query_embeddings[0]
 
     distance = Document.embedding.cosine_distance(query_vec).label("distance")
     
-    # فلترة صارمة وحتمية برقم المدرسة لمنع اختلاط المستندات
     stmt = (
         select(Document, distance)
         .where(Document.school_id == school_id)
@@ -120,28 +117,43 @@ async def retrieve_top_k(query: str, db: Session, school_id: int, k: int = 6) ->
     return [(row[0], float(row[1])) for row in results]
 
 
-RAG_SYSTEM_PROMPT = """أنت مساعد ذكي ومحترف في نظام إدارة مدارس التكنولوجيا التطبيقية. مهمتك الإجابة عن أسئلة المستخدمين بدقة وبناءً على النصوص المرجعية المرفقة المفلترة خصيصاً للمدرسة الحالية.
-أجب بوضوح وباللغة العربية الفصحى دون اختراع تفاصيل غير مذكورة صراحة في النص. إذا لم تجد الإجابة، قل: "عذراً، لا تتوفر معلومات تفصيلية حول هذا السؤال في الدليل الحالي لهذه المدرسة"."""
+def build_augmented_prompt(query: str, chunks: list[Document]) -> list[dict[str, str]]:
+    context_block = "\n\n---\n\n".join([doc.content for doc in chunks])
+    
+    system_instruction = (
+        "أنت مستشار ذكي خبير وموثوق لمدارس التكنولوجيا التطبيقية في مصر.\n"
+        "مهمتك هي الإجابة على أسئلة المستخدمين بدقة وبناءً على النصوص المرجعية الرسمية المرفقة فقط.\n"
+        "قواعد صارمة:\n"
+        "1. اعتمد فقط على المعلومات المذكورة في المستند المرجعي المرفق.\n"
+        "2. إذا لم تكن الإجابة موجودة في النص، قل بدقة: 'عذراً، لا تتوفر معلومات تفصيلية دقيقة حول هذا السؤال في الدليل الحالي المرفوع للمدرسة.'\n"
+        "3. لا تقم باختلاق أو تخمين أي حقول أو شروط غير موجودة صراحة."
+    )
+    
+    user_content = (
+        f"المستندات الرسمية المسترجعة:\n{context_block}\n\n"
+        f"السؤال: {query}\n"
+        f"الإجابة المعتمدة والمفصلة:"
+    )
+    
+    return [
+        {"role": "system", "content": system_instruction},
+        {"role": "user", "content": user_content}
+    ]
 
 
-async def answer_query(query: str, db: Session, school_id: int, k: int = 6) -> dict[str, Any]:
-    """Production RAG entry point — isolated and dynamic."""
+async def answer_query(query: str, db: Session, school_id: int, k: int = 5) -> dict[str, Any]:
     results = await retrieve_top_k(query, db, school_id=school_id, k=k)
 
     if not results:
         return {
-            "answer": "لا تتوفر مستندات أو أدلة مرفوعة حالياً لهذه المدرسة في قاعدة المعرفة الذكية.",
+            "answer": "لا تتوفر كتب شروط أو أدلة مرفوعة حالياً لهذه المدرسة في قاعدة المعرفة، يرجى تزويد النظام بملف دليل المدرسة أولاً.",
             "sources": [],
         }
         
     chunks = [doc for doc, _ in results]
     distances = [dist for _, dist in results]
 
-    context_block = "\n\n---\n\n".join([doc.content for doc in chunks])
-    messages = [
-        {"role": "system", "content": RAG_SYSTEM_PROMPT},
-        {"role": "user", "content": f"النصوص المرجعية المتاحة:\n{context_block}\n\nالسؤال: {query}"},
-    ]
+    messages = build_augmented_prompt(query, chunks)
 
     response = await groq_client.chat.completions.create(
         model=GROQ_MODEL,
@@ -150,14 +162,15 @@ async def answer_query(query: str, db: Session, school_id: int, k: int = 6) -> d
     )
     answer = response.choices[0].message.content
 
+    # بناء قائمة المصادر بشكل صارم ومفلتر (اسم الملف + رقم الجزء + مقتطف النص)
     sources = [
         {
-            "id": doc.id,
-            "source": (doc.doc_metadata or {}).get("source", "unknown"),
+            "source": (doc.doc_metadata or {}).get("source"),
             "chunk_index": (doc.doc_metadata or {}).get("chunk_index"),
-            "distance": round(dist, 4),
+            "snippet": doc.content.replace(f"المستند المرجعي: {(doc.doc_metadata or {}).get('source')}\nالمحتوى التفصيلي:\n", "")[:200] + "..."
         }
         for doc, dist in zip(chunks, distances)
+        if doc.doc_metadata and doc.doc_metadata.get("source") and doc.doc_metadata.get("chunk_index") is not None
     ]
 
     return {"answer": answer, "sources": sources}
