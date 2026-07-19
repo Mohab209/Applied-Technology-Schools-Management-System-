@@ -164,16 +164,18 @@ async def retrieve_top_k(
     db: Session,
     k: int = 6,
 ) -> list[tuple[Document, float]]:
-    """Retrieve top-K most similar chunks using Cosine Similarity."""
+    """Retrieve top-K most similar chunks using fixed cosine_distance."""
+    # 1. توليد الـ Embedding الخاص بالسؤال
     query_embeddings = await embed_texts([query])
     query_vec = query_embeddings[0]
 
-    # استخدام الجداء الداخلي العكسي أو التشابه (حسب المتاح في موديل قاعدة بياناتك)
-    # إذا كانت قاعدة بياناتك تدعم cosine_similarity مباشرة:
-    similarity = Document.embedding.cosine_similarity(query_vec).label("similarity")
+    # 2. حساب المسافة (كلما قلّت المسافة زاد التشابه الدلالي)
+    distance = Document.embedding.cosine_distance(query_vec).label("distance")
+    
+    # 3. استخدام الترتيب التصاعدي .asc() لجلب القطع الأقرب في الصدارة
     stmt = (
-        select(Document, similarity)
-        .order_by(desc("similarity")) # الترتيب من الأعلى تشابهاً للأقل
+        select(Document, distance)
+        .order_by(distance.asc()) 
         .limit(k)
     )
 
