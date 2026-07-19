@@ -39,8 +39,8 @@ if not HF_TOKEN:
 # Chunking config — Optimized for Arabic Context and Knowledge Base
 # ============================================================
 # تم رفع الحجم لتصبح الفقرة والأسئلة الشائعة كاملة داخل نفس الـ Chunk
-CHUNK_SIZE = 1200 
-CHUNK_OVERLAP = 250
+CHUNK_SIZE = 2000 
+CHUNK_OVERLAP = 200
 
 _splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
@@ -162,17 +162,18 @@ async def ingest_document(
 async def retrieve_top_k(
     query: str,
     db: Session,
-    k: int = 6, # رفع قيمة الـ K لضمان جلب سياق أكثر للـ LLM
+    k: int = 6,
 ) -> list[tuple[Document, float]]:
-    """Retrieve top-K most similar chunks for a query."""
+    """Retrieve top-K most similar chunks using Cosine Similarity."""
     query_embeddings = await embed_texts([query])
     query_vec = query_embeddings[0]
 
-    # جلب مسافة الجيب التمام وترتيب النتائج تصاعدياً بشكل صريح من الأقرب (الأصغر مسافة) للأبعد
-    distance = Document.embedding.cosine_distance(query_vec).label("distance")
+    # استخدام الجداء الداخلي العكسي أو التشابه (حسب المتاح في موديل قاعدة بياناتك)
+    # إذا كانت قاعدة بياناتك تدعم cosine_similarity مباشرة:
+    similarity = Document.embedding.cosine_similarity(query_vec).label("similarity")
     stmt = (
-        select(Document, distance)
-        .order_by(distance.asc()) 
+        select(Document, similarity)
+        .order_by(desc("similarity")) # الترتيب من الأعلى تشابهاً للأقل
         .limit(k)
     )
 
