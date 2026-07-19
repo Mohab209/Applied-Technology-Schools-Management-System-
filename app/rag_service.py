@@ -26,8 +26,8 @@ HF_EMBEDDING_URL = f"https://router.huggingface.co/hf-inference/models/{HF_EMBED
 if not HF_TOKEN:
     raise RuntimeError("HF_TOKEN not found in .env — required for embeddings")
 
-CHUNK_SIZE = 1600
-CHUNK_OVERLAP = 300
+CHUNK_SIZE = 2500
+CHUNK_OVERLAP = 250
 
 _splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
