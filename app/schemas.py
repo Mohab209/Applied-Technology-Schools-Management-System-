@@ -1,8 +1,6 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 from datetime import datetime
-from typing import Literal
-
 
 class SchoolBase(BaseModel):
     arabic_name: str = Field(..., min_length=5, max_length=200)
@@ -17,10 +15,8 @@ class SchoolBase(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     official_website: Optional[str] = Field(None, max_length=255)
 
-
 class SchoolCreate(SchoolBase):
     pass
-
 
 class SchoolUpdate(BaseModel):
     arabic_name: Optional[str] = Field(None, min_length=5, max_length=200)
@@ -35,7 +31,6 @@ class SchoolUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=1000)
     official_website: Optional[str] = Field(None, max_length=255)
     is_active: Optional[bool] = None
-
 
 class SchoolResponse(SchoolBase):
     id: int
@@ -53,28 +48,18 @@ class SchoolExtractionResponse(SchoolBase):
 
 class RAGQueryRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=1000, description="The user's question")
-    k: int = Field(5, ge=1, le=20, description="Number of chunks to retrieve")
-
-class RAGSource(BaseModel):
-    id: int
-    source: str
-    chunk_index: int | None = None
-    distance: float
-    preview: str
-
+    school_id: int = Field(..., description="The ID of the school to query within")
+    k: int = Field(6, ge=1, le=20, description="Number of chunks to retrieve")
 
 class RAGQueryResponse(BaseModel):
     answer: str
-    sources: list[RAGSource]
-
+    sources: list[dict]
 
 class RAGIngestResponse(BaseModel):
     message: str
-    filename: str
-    chunks_ingested: int
-
+    chunks: int
 
 class RAGSourceResponse(BaseModel):
     source: str
     chunk_count: int
-    last_ingested: datetime | None
+    last_ingested: Optional[str] = None

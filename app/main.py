@@ -104,19 +104,37 @@ async def extract_school_endpoint(request: SchoolExtractionRequest, db: Session 
     return school
 
 @app.post("/rag/query", response_model=RAGQueryResponse)
-async def rag_query(request: RAGQueryRequest, db: Session = Depends(get_db),):
-    return await answer_query(query=request.question, db=db, k=request.k,)
+async def rag_query(request: RAGQueryRequest, db: Session = Depends(get_db)):
+    return await answer_query(
+        query=request.question, 
+        db=db, 
+        school_id=request.school_id, 
+        k=request.k
+    )
 
 from fastapi import UploadFile, File
 
 @app.post("/rag/ingest", response_model=RAGIngestResponse)
-async def ingest_pdf(file: UploadFile = File(...), db: Session = Depends(get_db), _: None = Depends(verify_api_key),):
+async def ingest_pdf(
+    school_id: int,
+    file: UploadFile = File(...), 
+    db: Session = Depends(get_db), 
+    _: None = Depends(verify_api_key)
+):
     pdf_bytes = await file.read()
 
-    chunks = await ingest_document(pdf_bytes=pdf_bytes, filename=file.filename, db=db,)
+    chunks = await ingest_document(
+        pdf_bytes=pdf_bytes,
+        filename=file.filename,
+        school_id=school_id,
+        db=db
+    )
 
-    return RAGIngestResponse(message="Document ingested successfully.", filename=file.filename, chunks_ingested=chunks,)
+    return {
+        "message": f"Successfully ingested {file.filename!r} for school ID {school_id}", 
+        "chunks": chunks
+    }
 
-@app.get("/rag/sources", response_model=list[RAGSourceResponse])
-def get_sources(db: Session = Depends(get_db),_: None = Depends(verify_api_key),):
+@app.get("/rag/sources", response_model=List[RAGSourceResponse])
+def get_sources(db: Session = Depends(get_db)):
     return list_ingested_sources(db)
