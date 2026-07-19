@@ -79,19 +79,20 @@ with st.sidebar.expander("🔐 لوحة تحكم الإدارة (خاص بالم
 
 is_admin = st.session_state.is_admin
 
-# تبسيط أسماء الأقسام للمستخدم العادي
+# تبسيط أسماء الأقسام للمسؤول والمستخدم العادي
 menu_options = ["🏠 دليل واستعراض المدارس", "💬 المستشار الذكي (اسأل عن أي مدرسة)"]
 if is_admin:
     menu_options.extend([
         "➕ إضافة مدرسة جديدة", 
-        "📝 استخراج بيانات مدرسة من نص",
+        "📝 تعديل بيانات مدرسة",
+        "🔍 استخراج بيانات مدرسة من نص",
         "📂 رفع ملفات وأدلة المدارس"
     ])
 
 menu = st.sidebar.radio("اختر الوجهة:", menu_options)
 
 # ==========================================
-# 1. شاشة دليل واستعراض المدارس (UI مُحسّن)
+# 1. شاشة دليل واستعراض المدارس
 # ==========================================
 if menu == "🏠 دليل واستعراض المدارس":
     st.title("🏫 دليل مدارس التكنولوجيا التطبيقية بمصر")
@@ -105,12 +106,10 @@ if menu == "🏠 دليل واستعراض المدارس":
                 if not schools:
                     st.info("لا توجد مدارس مسجلة في الدليل حتى الآن.")
                 else:
-                    # عرض إجمالي المدارس بشكل جمالي
                     st.markdown(f"### 📊 إجمالي المدارس المتوفرة: `{len(schools)}` مدارس")
                     st.write("---")
                     
                     for school in schools:
-                        # تنسيق وعرض بطاقة المدرسة بشكل احترافي ومبسط
                         st.markdown(f"""
                         <div class="school-card">
                             <h2 style='margin-top:0; color:#0056b3;'>🏫 {school['arabic_name']}</h2>
@@ -118,7 +117,6 @@ if menu == "🏠 دليل واستعراض المدارس":
                         </div>
                         """, unsafe_allow_html=True)
                         
-                        # تفاصيل إضافية مقسمة في أعمدة
                         col1, col2, col3 = st.columns(3)
                         with col1:
                             st.markdown(f"🎯 **التخصص الدراسي:**\n{school['specialization']}")
@@ -130,7 +128,6 @@ if menu == "🏠 دليل واستعراض المدارس":
                             st.markdown(f"⏱️ **مدة الدراسة:**\n{school['study_duration']} سنوات")
                             st.markdown(f"📅 **سنة التأسيس:**\nعام {school['established_year']}")
                         
-                        # إبراز مجموع التنسيق والموقع الإلكتروني
                         col_btn1, col_btn2 = st.columns([1, 2])
                         with col_btn1:
                             st.markdown(f"<div class='metric-box'>📊 الحد الأدنى: {school['minimum_score']} درجة</div>", unsafe_allow_html=True)
@@ -248,11 +245,78 @@ elif menu == "➕ إضافة مدرسة جديدة" and is_admin:
                         st.error(f"حدث خطأ غير متوقع: {e}")
 
 # ==========================================
+# 新 3.5. شاشة تعديل بيانات مدرسة حليّة (Admin) - تمت إضافتها بناءً على طلبك
+# ==========================================
+elif menu == "📝 تعديل بيانات مدرسة" and is_admin:
+    st.header("📝 تعديل وتحديث بيانات مدرسة مسجلة")
+    st.write("اختر المدرسة من القائمة، وقم بتعديل أي حقل، ثم اضغط حفظ لتحديث البيانات فوراً.")
+
+    try:
+        schools_res = requests.get(f"{API_BASE_URL}/schools")
+        if schools_res.status_code == 200 and schools_res.json():
+            schools_list = schools_res.json()
+            # ربط اسم المدرسة بالكائن بالكامل لتعبئة الحقول تلقائياً
+            school_map = {s["arabic_name"]: s for s in schools_list}
+            
+            selected_name = st.selectbox("اختر المدرسة المراد تعديل بياناتها:", list(school_map.keys()))
+            selected_school = school_map[selected_name]
+            
+            # نموذج التعديل محمل مسبقاً بالبيانات الحالية للمدرسة
+            with st.form("edit_school_form"):
+                up_arabic_name = st.text_input("اسم المدرسة باللغة العربية:", value=selected_school["arabic_name"])
+                up_english_name = st.text_input("اسم المدرسة باللغة الإنجليزية:", value=selected_school["english_name"] or "")
+                up_established_year = st.number_input("سنة التأسيس:", min_value=2015, max_value=2030, value=int(selected_school["established_year"]))
+                up_specialization = st.text_input("التخصص الدراسي الحالي:", value=selected_school["specialization"])
+                up_location = st.text_input("الموقع الجغرافي / المحافظة:", value=selected_school["location"])
+                up_accepted_governorates = st.text_input("المحافظات المقبولة:", value=selected_school["accepted_governorates"])
+                up_minimum_score = st.number_input("الحد الأدنى للقبول (المجموع):", min_value=140, max_value=280, value=int(selected_school["minimum_score"]))
+                up_industrial_partner = st.text_input("الشريك الصناعي الحالي:", value=selected_school["industrial_partner"] or "")
+                up_study_duration = st.number_input("سنوات الدراسة:", min_value=3, max_value=5, value=int(selected_school["study_duration"]))
+                up_description = st.text_area("وصف عام ومميزات المدرسة:", value=selected_school["description"] or "")
+                up_official_website = st.text_input("رابط الموقع الرسمي:", value=selected_school["official_website"] or "")
+                
+                save_submitted = st.form_submit_button("حفظ التغييرات وتحديث البيانات")
+                
+                if save_submitted:
+                    if not up_arabic_name or not up_specialization or not up_location:
+                        st.error("لا يمكن ترك الحقول الأساسية فارغة (الاسم، التخصص، الموقع).")
+                    else:
+                        update_payload = {
+                            "arabic_name": up_arabic_name,
+                            "english_name": up_english_name if up_english_name else None,
+                            "established_year": int(up_established_year),
+                            "specialization": up_specialization,
+                            "location": up_location,
+                            "accepted_governorates": up_accepted_governorates,
+                            "minimum_score": int(up_minimum_score),
+                            "industrial_partner": up_industrial_partner if up_industrial_partner else None,
+                            "study_duration": int(up_study_duration),
+                            "description": up_description if up_description else None,
+                            "official_website": up_official_website if up_official_website else None
+                        }
+                        
+                        with st.spinner("جاري إرسال التحديثات للسيرفر..."):
+                            try:
+                                # استدعاء مسار الـ PUT الخاص بالخلفية وتمرير الـ id الخاص بالمدرسة المحددة
+                                put_res = requests.put(f"{API_BASE_URL}/schools/{selected_school['id']}", json=update_payload, headers=headers)
+                                if put_res.status_code == 200:
+                                    st.success(f"🎉 تم تحديث بيانات مدرسة '{up_arabic_name}' بنجاح في قاعدة البيانات!")
+                                    st.rerun()
+                                else:
+                                    st.error(f"فشل تحديث البيانات: {put_res.text}")
+                            except Exception as e:
+                                st.error(f"حدث خطأ أثناء الاتصال بالسيرفر: {e}")
+        else:
+            st.warning("⚠️ لا توجد مدارس مسجلة لتعديلها.")
+    except Exception as e:
+        st.error(f"خطأ أثناء جلب قائمة المدارس: {e}")
+
+# ==========================================
 # 4. شاشة استخراج وحفظ مدرسة بنص (Admin)
 # ==========================================
-elif menu == "📝 استخراج بيانات مدرسة من نص" and is_admin:
+elif menu == "🔍 استخراج بيانات مدرسة من نص" and is_admin:
     st.header("📝 استخراج وتعبئة بيانات المدارس تلقائياً")
-    st.write("أضف أي نص عشوائي (مثل منشور فيسبوك، إعلان رسمي، أو بيان صحفي) وسيتولى الذكاء الاصطناعي تفكيكه وتعبئة بيانات المدرسة تلقائياً وحفظها.")
+    st.write("أضف أي نص عشوائي وسيتولى الذكاء الاصطناعي تفكيكه وتعبئة بيانات المدرسة تلقائياً وحفظها.")
     
     school_text = st.text_area("الصق النص هنا:", height=150, placeholder="اكتب أو الصق المنشور التعريفي بالمدرسة...")
     provider = st.selectbox("محرك التحليل الذكي المفضل:", ["groq", "hf"])
