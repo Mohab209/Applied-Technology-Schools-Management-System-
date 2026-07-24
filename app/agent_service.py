@@ -1,8 +1,8 @@
 import os
+import re
 import json
 import operator
 from typing import Annotated, Any, TypedDict
-
 from dotenv import load_dotenv
 from langchain_core.messages import (
     BaseMessage,
@@ -13,16 +13,14 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from langfuse.langchain import CallbackHandler
-
 from app.database import SessionLocal
 from app.models import School
 from app.rag_service import answer_query as rag_answer_query
 
 load_dotenv()
 
-# تهيئة Langfuse CallbackHandler (سيقرأ المفاتيح من .env تلقائياً)
 langfuse_handler = CallbackHandler()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -37,6 +35,22 @@ llm = ChatOpenAI(
     temperature=0,
 )
 
+def normalize_arabic(text: str) -> str:
+    """تجريد وتوحيد الحروف والتشكيل للغة العربية"""
+    if not text:
+        return ""
+    
+    text = re.sub(r'[\u064B-\u0652]', '', text)
+    
+    replacements = {
+        'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا',
+        'ى': 'ي',
+        'ة': 'ه',
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+        
+    return text.strip()
 
 @tool
 def search_schools(
@@ -45,49 +59,34 @@ def search_schools(
     location: str | None = None,
     industrial_partner: str | None = None,
     minimum_score: int | None = None,
-) -> str:
-    """
-    Search schools stored in the database.
-
-    Use this tool whenever the user asks about:
-    - schools
-    - locations
-    - specializations
-    - industrial partners
-    - minimum score
-    - comparisons between schools
-    """
-
+) -> list[dict]:
     db = SessionLocal()
-
     try:
         stmt = select(School)
 
         if names:
             conditions = []
             for name in names:
-                conditions.append(School.arabic_name.ilike(f"%{name}%"))
+                norm_name = normalize_arabic(name)
+                norm_col = func.translate(School.arabic_name, 'أإآٱىة', 'اااايه')
+                
+                conditions.append(norm_col.ilike(f"%{norm_name}%"))
                 conditions.append(School.english_name.ilike(f"%{name}%"))
+            
             stmt = stmt.where(or_(*conditions))
 
         if specialization:
-            stmt = stmt.where(School.specialization.ilike(f"%{specialization}%"))
+            norm_spec = normalize_arabic(specialization)
+            norm_col = func.translate(School.specialization, 'أإآٱىة', 'اااايه')
+            stmt = stmt.where(norm_col.ilike(f"%{norm_spec}%"))
 
         if location:
-            stmt = stmt.where(School.location.ilike(f"%{location}%"))
-
-        if industrial_partner:
-            stmt = stmt.where(School.industrial_partner.ilike(f"%{industrial_partner}%"))
-
-        if minimum_score is not None:
-            stmt = stmt.where(School.minimum_score >= minimum_score)
+            norm_loc = normalize_arabic(location)
+            norm_col = func.translate(School.location, 'أإآٱىة', 'اااايه')
+            stmt = stmt.where(norm_col.ilike(f"%{norm_loc}%"))
 
         schools = db.execute(stmt).scalars().all()
-
-        if not schools:
-            return "لم يتم العثور على أية مدارس تطابق معايير البحث."
-
-        results = [
+        return [
             {
                 "id": school.id,
                 "arabic_name": school.arabic_name,
@@ -103,10 +102,6 @@ def search_schools(
             }
             for school in schools
         ]
-
-        # تحويل القائمة إلى نص JSON مقبول من Groq/OpenAI API
-        return json.dumps(results, ensure_ascii=False)
-
     finally:
         db.close()
 
@@ -155,41 +150,19 @@ llm_with_tools = llm.bind_tools(tools)
 # =====================================================
 
 SYSTEM_PROMPT = """
-You are an AI Assistant for the Applied Technology Schools Management System.
-
-Your goal is to answer questions about Applied Technology Schools in Egypt.
+You are an AI Assistant for the Applied Technology Schools Management System in Egypt.
 
 Available tools:
+1. `search_schools`: Queries structured DB records.
+2. `search_documents`: Performs vector search (RAG) over detailed PDF school guides.
 
-1. search_schools
-
-Use this tool for:
-- school information
-- comparing schools
-- locations
-- specializations
-- industrial partners
-- minimum score
-- study duration
-- accepted governorates
-- official website
-
-2. search_documents
-
-Use this tool whenever the answer requires searching
-the uploaded PDF documents.
-
-Guidelines:
-
-- Always use tools before answering.
-- Never make up information.
-- If search_schools contains enough information,
-  do not call search_documents.
-- If database information is insufficient,
-  use search_documents.
-- You may call both tools if needed.
+CRITICAL RULES:
+1. ALWAYS call `search_schools` first to get standard DB info.
+2. If the user asks for COMPARISONS, DETAILS, RULES, ADVANTAGES, or ADMISSION PROCESS:
+   - You MUST ALSO call `search_documents` for EACH school mentioned to get context from PDF guides.
+3. NEVER assume missing values (e.g., guessing minimum score or industrial partner). If information is absent, state clearly that it is not available.
+4. Combine results from both tools into a complete, accurate Arabic response.
 """
-
 
 # =====================================================
 # Agent State

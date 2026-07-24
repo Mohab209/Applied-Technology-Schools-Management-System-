@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.llm_service import PROVIDERS
 from app.models import Document
+from app.agent_service import normalize_arabic
 
 load_dotenv()
 
@@ -100,14 +101,15 @@ async def ingest_document(pdf_bytes: bytes, filename: str, school_id: int, db: S
     return len(docs)
 
 
-async def retrieve_top_k( query: str,  db: Session,  school_id: Optional[int] = None, k: int = 5) -> list[tuple[Document, float]]:
-    query_embeddings = await embed_texts([query])
+async def retrieve_top_k(query: str,  db: Session,  school_id: Optional[int] = None,  k: int = 5) -> list[tuple[Document, float]]:
+    
+    normalized_query = normalize_arabic(query)
+    query_embeddings = await embed_texts([normalized_query])
     query_vec = query_embeddings[0]
 
     distance = Document.embedding.cosine_distance(query_vec).label("distance")
     
     stmt = select(Document, distance)
-    
     if school_id is not None:
         stmt = stmt.where(Document.school_id == school_id)
         
