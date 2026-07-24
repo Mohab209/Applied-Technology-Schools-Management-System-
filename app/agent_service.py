@@ -18,6 +18,7 @@ from langfuse.langchain import CallbackHandler
 from app.database import SessionLocal
 from app.models import School
 from app.rag_service import answer_query as rag_answer_query
+from app.utils import normalize_arabic
 
 load_dotenv()
 
@@ -34,23 +35,6 @@ llm = ChatOpenAI(
     base_url="https://api.groq.com/openai/v1",
     temperature=0,
 )
-
-def normalize_arabic(text: str) -> str:
-    """تجريد وتوحيد الحروف والتشكيل للغة العربية"""
-    if not text:
-        return ""
-    
-    text = re.sub(r'[\u064B-\u0652]', '', text)
-    
-    replacements = {
-        'أ': 'ا', 'إ': 'ا', 'آ': 'ا', 'ٱ': 'ا',
-        'ى': 'ي',
-        'ة': 'ه',
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-        
-    return text.strip()
 
 @tool
 def search_schools(

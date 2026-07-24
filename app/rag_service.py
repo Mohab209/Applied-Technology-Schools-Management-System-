@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.llm_service import PROVIDERS
 from app.models import Document
-from app.agent_service import normalize_arabic
+from app.utils import normalize_arabic
 
 load_dotenv()
 
