@@ -1,4 +1,5 @@
 import os
+import json
 import operator
 from typing import Annotated, Any, TypedDict
 
@@ -21,6 +22,7 @@ from app.rag_service import answer_query as rag_answer_query
 
 load_dotenv()
 
+# تهيئة Langfuse CallbackHandler (سيقرأ المفاتيح من .env تلقائياً)
 langfuse_handler = CallbackHandler()
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
@@ -43,7 +45,7 @@ def search_schools(
     location: str | None = None,
     industrial_partner: str | None = None,
     minimum_score: int | None = None,
-) -> list[dict]:
+) -> str:
     """
     Search schools stored in the database.
 
@@ -59,58 +61,33 @@ def search_schools(
     db = SessionLocal()
 
     try:
-
         stmt = select(School)
 
         if names:
-
             conditions = []
-
             for name in names:
-
-                conditions.append(
-                    School.arabic_name.ilike(f"%{name}%")
-                )
-
-                conditions.append(
-                    School.english_name.ilike(f"%{name}%")
-                )
-
+                conditions.append(School.arabic_name.ilike(f"%{name}%"))
+                conditions.append(School.english_name.ilike(f"%{name}%"))
             stmt = stmt.where(or_(*conditions))
 
         if specialization:
-
-            stmt = stmt.where(
-                School.specialization.ilike(
-                    f"%{specialization}%"
-                )
-            )
+            stmt = stmt.where(School.specialization.ilike(f"%{specialization}%"))
 
         if location:
-
-            stmt = stmt.where(
-                School.location.ilike(
-                    f"%{location}%"
-                )
-            )
+            stmt = stmt.where(School.location.ilike(f"%{location}%"))
 
         if industrial_partner:
-
-            stmt = stmt.where(
-                School.industrial_partner.ilike(
-                    f"%{industrial_partner}%"
-                )
-            )
+            stmt = stmt.where(School.industrial_partner.ilike(f"%{industrial_partner}%"))
 
         if minimum_score is not None:
-
-            stmt = stmt.where(
-                School.minimum_score >= minimum_score
-            )
+            stmt = stmt.where(School.minimum_score >= minimum_score)
 
         schools = db.execute(stmt).scalars().all()
 
-        return [
+        if not schools:
+            return "لم يتم العثور على أية مدارس تطابق معايير البحث."
+
+        results = [
             {
                 "id": school.id,
                 "arabic_name": school.arabic_name,
@@ -127,8 +104,12 @@ def search_schools(
             for school in schools
         ]
 
+        # تحويل القائمة إلى نص JSON مقبول من Groq/OpenAI API
+        return json.dumps(results, ensure_ascii=False)
+
     finally:
         db.close()
+
 
 @tool
 async def search_documents(question: str) -> str:
@@ -142,14 +123,13 @@ async def search_documents(question: str) -> str:
     db = SessionLocal()
 
     try:
-
         result = await rag_answer_query(
             query=question,
             db=db,
             k=3,
         )
 
-        return result["answer"]
+        return str(result.get("answer", "لم يتم العثور على إجابة في المستندات."))
 
     finally:
         db.close()
@@ -215,12 +195,12 @@ Guidelines:
 class AgentState(TypedDict):
     messages: Annotated[list[BaseMessage], operator.add]
 
+
 # =====================================================
 # Agent Node
 # =====================================================
 
 async def agent_node(state: AgentState) -> dict:
-
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         *state["messages"],
@@ -238,7 +218,6 @@ async def agent_node(state: AgentState) -> dict:
 # =====================================================
 
 def should_continue(state: AgentState) -> str:
-
     last_message = state["messages"][-1]
 
     if getattr(last_message, "tool_calls", None):
@@ -253,15 +232,8 @@ def should_continue(state: AgentState) -> str:
 
 graph_builder = StateGraph(AgentState)
 
-graph_builder.add_node(
-    "agent",
-    agent_node,
-)
-
-graph_builder.add_node(
-    "tools",
-    ToolNode(tools),
-)
+graph_builder.add_node("agent", agent_node)
+graph_builder.add_node("tools", ToolNode(tools))
 
 graph_builder.set_entry_point("agent")
 
@@ -274,12 +246,10 @@ graph_builder.add_conditional_edges(
     },
 )
 
-graph_builder.add_edge(
-    "tools",
-    "agent",
-)
+graph_builder.add_edge("tools", "agent")
 
 agent_graph = graph_builder.compile()
+
 
 # =====================================================
 # Run Agent
@@ -319,11 +289,8 @@ async def run_agent(question: str) -> dict[str, Any]:
     steps = []
 
     for message in result["messages"]:
-
         if getattr(message, "tool_calls", None):
-
             for tool_call in message.tool_calls:
-
                 steps.append(
                     {
                         "tool": tool_call["name"],
