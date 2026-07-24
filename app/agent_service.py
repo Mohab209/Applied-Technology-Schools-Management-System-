@@ -37,13 +37,28 @@ llm = ChatOpenAI(
 )
 
 @tool
-def search_schools(
-    names: list[str] | None = None,
-    specialization: str | None = None,
-    location: str | None = None,
-    industrial_partner: str | None = None,
-    minimum_score: int | None = None,
-) -> list[dict]:
+def search_schools(names: list[str] | None = None, specialization: str | None = None, location: str | None = None, industrial_partner: str | None = None, minimum_score: int | None = None,) -> list[dict]:
+    """
+    Search and retrieve structured school records from the main database.
+
+    Use this tool when you need basic, high-level attributes of Applied Technology Schools, such as:
+    - Official Arabic or English school names
+    - Geographic locations (cities/governorates)
+    - Major academic specializations
+    - Minimum required scores (admission cutoffs)
+    - Industrial partners (companies/initiatives)
+    - Accepted governorates, study duration, and official website links
+
+    Parameters:
+    - names: Optional list of school name keywords to filter by (e.g., ["ابدأ", "ارابكوميد"]).
+    - specialization: Keyword to search in school specializations.
+    - location: Keyword to search in school location or governorate.
+    - industrial_partner: Keyword to search in industrial partners.
+    - minimum_score: Minimum required score filter (returns schools with score >= minimum_score).
+
+    Returns:
+    - A list of dictionaries containing structured data for matching schools.
+    """
     db = SessionLocal()
     try:
         stmt = select(School)
