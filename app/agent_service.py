@@ -110,14 +110,14 @@ def search_schools(
     finally:
         db.close()
 
-
 @tool
-async def search_documents(question: str) -> str:
+async def search_documents(question: str, school_id: int | None = None) -> str:
     """
     Search the uploaded PDF documents using RAG.
 
-    Use this tool whenever the answer should come
-    from the uploaded PDF files.
+    Use this tool whenever the answer should come from uploaded PDF files.
+    - If you are querying about a specific school and know its school_id, pass school_id.
+    - If comparing multiple schools or asking a general question, leave school_id as None.
     """
 
     db = SessionLocal()
@@ -126,11 +126,14 @@ async def search_documents(question: str) -> str:
         result = await rag_answer_query(
             query=question,
             db=db,
-            k=3,
+            school_id=school_id,
+            k=5,
         )
 
         return str(result.get("answer", "لم يتم العثور على إجابة في المستندات."))
 
+    except Exception as e:
+        return f"حدث خطأ أثناء البحث في المستندات: {str(e)}"
     finally:
         db.close()
 

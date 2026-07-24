@@ -100,18 +100,18 @@ async def ingest_document(pdf_bytes: bytes, filename: str, school_id: int, db: S
     return len(docs)
 
 
-async def retrieve_top_k(query: str, db: Session, school_id: int, k: int = 5) -> list[tuple[Document, float]]:
+async def retrieve_top_k( query: str,  db: Session,  school_id: Optional[int] = None, k: int = 5) -> list[tuple[Document, float]]:
     query_embeddings = await embed_texts([query])
     query_vec = query_embeddings[0]
 
     distance = Document.embedding.cosine_distance(query_vec).label("distance")
     
-    stmt = (
-        select(Document, distance)
-        .where(Document.school_id == school_id)
-        .order_by(distance.asc())
-        .limit(k)
-    )
+    stmt = select(Document, distance)
+    
+    if school_id is not None:
+        stmt = stmt.where(Document.school_id == school_id)
+        
+    stmt = stmt.order_by(distance.asc()).limit(k)
 
     results = db.execute(stmt).all()
     return [(row[0], float(row[1])) for row in results]
@@ -141,12 +141,12 @@ def build_augmented_prompt(query: str, chunks: list[Document]) -> list[dict[str,
     ]
 
 
-async def answer_query(query: str, db: Session, school_id: int, k: int = 5) -> dict[str, Any]:
+async def answer_query(query: str,  db: Session,  school_id: Optional[int] = None, k: int = 5) -> dict[str, Any]:
     results = await retrieve_top_k(query, db, school_id=school_id, k=k)
 
     if not results:
         return {
-            "answer": "لا تتوفر كتب شروط أو أدلة مرفوعة حالياً لهذه المدرسة في قاعدة المعرفة، يرجى تزويد النظام بملف دليل المدرسة أولاً.",
+            "answer": "لا تتوفر كتب شروط أو أدلة مرفوعة حالياً في قاعدة المعرفة، يرجى تزويد النظام بملف دليل المدرسة أولاً.",
             "sources": [],
         }
         
@@ -162,7 +162,6 @@ async def answer_query(query: str, db: Session, school_id: int, k: int = 5) -> d
     )
     answer = response.choices[0].message.content
 
-    # بناء قائمة المصادر بشكل صارم ومفلتر (اسم الملف + رقم الجزء + مقتطف النص)
     sources = [
         {
             "source": (doc.doc_metadata or {}).get("source"),
