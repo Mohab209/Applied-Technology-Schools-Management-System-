@@ -6,9 +6,10 @@ from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 from app.database import get_db, engine, Base
 from app.models import School
-from app.schemas import SchoolCreate, SchoolUpdate, SchoolResponse, SchoolExtractionRequest, SchoolExtractionResponse, RAGQueryRequest, RAGQueryResponse, RAGIngestResponse, RAGSourceResponse 
+from app.schemas import SchoolCreate, SchoolUpdate, SchoolResponse, SchoolExtractionRequest, SchoolExtractionResponse, RAGQueryRequest, RAGQueryResponse, RAGIngestResponse, RAGSourceResponse, AgentRequest, AgentResponse
 from app.llm_service import extract_school
 from app.rag_service import answer_query, ingest_document, list_ingested_sources
+from app.agent_service import run_agent
 
 load_dotenv()
 
@@ -138,3 +139,12 @@ async def ingest_pdf(
 @app.get("/rag/sources", response_model=List[RAGSourceResponse])
 def get_sources(db: Session = Depends(get_db)):
     return list_ingested_sources(db)
+
+@app.post(
+    "/agent",
+    response_model=AgentResponse,
+    tags=["AI Agent"],
+)
+async def agent(request: AgentRequest):
+
+    return await run_agent(request.question)

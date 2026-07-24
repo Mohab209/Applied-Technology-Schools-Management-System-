@@ -1,6 +1,7 @@
 from pydantic import BaseModel, Field
 from typing import Optional, Literal
 from datetime import datetime
+from typing import Any
 
 class SchoolBase(BaseModel):
     arabic_name: str = Field(..., min_length=5, max_length=200)
@@ -63,3 +64,19 @@ class RAGSourceResponse(BaseModel):
     source: str
     chunk_count: int
     last_ingested: Optional[str] = None
+
+class AgentRequest(BaseModel):
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+        description="User question for the AI Agent",
+    )
+
+class AgentStep(BaseModel):
+    tool: str
+    args: dict[str, Any]
+
+class AgentResponse(BaseModel):
+    answer: str
+    steps: list[AgentStep]

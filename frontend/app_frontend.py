@@ -12,6 +12,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# جلب إعدادات الاتصال
 try:
     API_BASE_URL = st.secrets["API_BASE_URL"]
     SYSTEM_API_KEY = st.secrets["API_KEY"]
@@ -19,6 +20,7 @@ except Exception:
     API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
     SYSTEM_API_KEY = os.getenv("API_KEY")
 
+# التنسيقات الخاصة بالواجهة العربية
 st.markdown("""
     <style>
     .main .block-container {
@@ -64,6 +66,7 @@ headers = {"X-API-Key": SYSTEM_API_KEY} if SYSTEM_API_KEY else {}
 
 st.sidebar.title("🎓 القائمة الرئيسية")
 
+# إدارة جلسة المسؤول (Admin)
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 
@@ -85,7 +88,7 @@ with st.sidebar.expander("🔐 لوحة تحكم الإدارة"):
 
 is_admin = st.session_state.is_admin
 
-menu_options = ["🏠 دليل واستعراض المدارس", "💬 المستشار الذكي (اسأل عن أي مدرسة)"]
+menu_options = ["🏠 دليل واستعراض المدارس", "🤖 المستشار الذكي (AI Agent)"]
 if is_admin:
     menu_options.extend([
         "➕ إضافة مدرسة جديدة", 
@@ -96,7 +99,7 @@ if is_admin:
 
 menu = st.sidebar.radio("اختر الوجهة:", menu_options)
 
-# --- زر إحصائيات الآدمن الصارم لمعرفة عدد الملفات المرفوعة والقطع المتولدة منها ---
+# --- إحصائيات الآدمن لمراقبة ملفات الـ RAG ---
 if is_admin:
     st.sidebar.markdown("---")
     st.sidebar.subheader("📊 مراقبة ملفات الـ RAG")
@@ -161,51 +164,43 @@ if menu == "🏠 دليل واستعراض المدارس":
         except Exception as e:
             st.error(f"خطأ في الاتصال: {e}")
 
-# 2. المستشار الذكي (RAG Query)
-elif menu == "💬 المستشار الذكي (اسأل عن أي مدرسة)":
-    st.title("💬 المستشار الذكي للمدارس")
-    try:
-        schools_res = requests.get(f"{API_BASE_URL}/schools")
-        if schools_res.status_code == 200 and schools_res.json():
-            schools_list = schools_res.json()
-            school_options = {s["arabic_name"]: s["id"] for s in schools_list}
-            selected_school_name = st.selectbox("حدد المدرسة المراد الاستفسار عنها:", list(school_options.keys()))
-            selected_school_id = school_options[selected_school_name]
+# 2. المستشار الذكي المتصل بالـ AI Agent 🤖
+elif menu == "🤖 المستشار الذكي (AI Agent)":
+    st.title("🤖 المستشار الذكي لمدارس التكنولوجيا التطبيقية")
+    st.caption("مساعد الذكاء الاصطناعي يمكنه البحث في قواعد البيانات وأدلة المدارس المرفوعة ومقارنة المدارس بذكاء.")
 
-            user_question = st.text_input("اكتب سؤالك هنا بوضوح:")
-            if st.button("إرسال السؤال"):
-                if user_question.strip():
-                    with st.spinner("جاري قراءة وتحليل نصوص الدليل..."):
-                        try:
-                            payload = {"question": user_question, "school_id": selected_school_id, "k": 5}
-                            response = requests.post(f"{API_BASE_URL}/rag/query", json=payload, headers=headers)
-                            
-                            # التعديل الصارم لعرض المصادر أو إخفائها بالكامل لليوزر بناء على اكتمال الـ 3 حقول
-                            if response.status_code == 200:
-                                data = response.json()
-                                st.markdown("### 🤖 إجابة المستشار الذكي:")
-                                st.markdown(f'<div class="answer-box">{data["answer"]}</div>', unsafe_allow_html=True)
-                                
-                                raw_sources = data.get("sources", [])
-                                valid_sources = [
-                                    s for s in raw_sources 
-                                    if s.get("source") and s.get("chunk_index") is not None and s.get("snippet")
-                                ]
-                                
-                                if valid_sources:
-                                    st.markdown("<br>", unsafe_allow_html=True)
-                                    st.markdown("#### 📌 المراجع الرسمية المعتمدة للإجابة:")
-                                    for src in valid_sources:
-                                        with st.expander(f"📄 ملف: {src['source']} | (الجزء رقم {src['chunk_index']})"):
-                                            st.write(f"**مقتطف من النص المستدل به:** \n {src['snippet']}")
-                            else:
-                                st.warning("تنبيه: لم يتم رفع ملفات دليل الطالب لهذه المدرسة بعد.")
-                        except Exception as e:
-                            st.error(f"فشل الاتصال: {e}")
+    user_question = st.text_area("اكتب سؤالك هنا بوضوح (مثال: قارن بين مدارس الذكاء الاصطناعي، أو ما هي المدارس المتاحة في الجيزة؟):", height=100)
+    
+    if st.button("🚀 إرسال السؤال إلى المستشار الذكي"):
+        if user_question.strip():
+            with st.status("🧠 المساعد الذكي يفكر ويحدد الأدوات المناسبة للرد...", expanded=True) as status:
+                try:
+                    payload = {"question": user_question}
+                    response = requests.post(f"{API_BASE_URL}/agent", json=payload, headers=headers)
+                    
+                    if response.status_code == 200:
+                        data = response.json()
+                        status.update(label="✅ تم الوصول إلى الإجابة المناسبة!", state="complete", expanded=False)
+                        
+                        # عرض خطوات التفكير والأدوات المستخدمة إن وجدت
+                        steps = data.get("steps", [])
+                        if steps:
+                            with st.expander("🔍 تفاصيل البحث والعمليات المنجزة بواسطة المساعد الذكي"):
+                                for idx, step in enumerate(steps, 1):
+                                    st.write(f"**الخطوة {idx}:** استخدام أداة `{step['tool']}`")
+                                    st.json(step['args'])
+                        
+                        st.markdown("### 🤖 إجابة المستشار الذكي:")
+                        st.markdown(f'<div class="answer-box">{data["answer"]}</div>', unsafe_allow_html=True)
+                        
+                    else:
+                        status.update(label="❌ حدث خطأ أثناء معالجة الطلب.", state="error")
+                        st.error(f"خطأ من السيرفر: {response.text}")
+                except Exception as e:
+                    status.update(label="❌ فشل الاتصال بالخادم.", state="error")
+                    st.error(f"خطأ في الاتصال: {e}")
         else:
-            st.warning("⚠️ لا توجد مدارس مسجلة بالنظام حالياً.")
-    except Exception as e:
-        st.error(f"خطأ في جلب قائمة المدارس: {e}")
+            st.warning("يرجى كتابة سؤال أولاً.")
 
 # 3. إضافة مدرسة جديدة (Admin)
 elif menu == "➕ إضافة مدرسة جديدة" and is_admin:
@@ -237,7 +232,7 @@ elif menu == "➕ إضافة مدرسة جديدة" and is_admin:
                 if res.status_code == 201:
                     st.success(f"🎉 تم تسجيل مدرسة '{arabic_name}' بنجاح!")
 
-# 4. تعديل بيانات مدرسة (Admin)
+# 4. تعديل بيانات مدرسة (Admin) - مع إصلاح PATCH
 elif menu == "📝 تعديل بيانات مدرسة" and is_admin:
     st.header("📝 تعديل وتحديث بيانات مدرسة مسجلة")
     try:
@@ -268,10 +263,13 @@ elif menu == "📝 تعديل بيانات مدرسة" and is_admin:
                         "minimum_score": int(up_score), "industrial_partner": up_partner or None,
                         "study_duration": int(up_dur), "description": up_desc or None, "official_website": up_web or None
                     }
-                    put_res = requests.put(f"{API_BASE_URL}/schools/{s_data['id']}", json=up_payload, headers=headers)
-                    if put_res.status_code == 200:
+                    # التعديل الصارم: استخدام patch بدلاً من put ليتوافق مع main.py
+                    patch_res = requests.patch(f"{API_BASE_URL}/schools/{s_data['id']}", json=up_payload, headers=headers)
+                    if patch_res.status_code == 200:
                         st.success("🎉 تم تحديث بيانات المدرسة بنجاح!")
                         st.rerun()
+                    else:
+                        st.error(f"فشل التعديل: {patch_res.text}")
     except Exception as e:
         st.error(f"خطأ أثناء جلب قائمة المدارس: {e}")
 
@@ -287,6 +285,8 @@ elif menu == "🔍 استخراج بيانات مدرسة من نص" and is_admi
             if response.status_code == 200:
                 st.success("🎉 نجح التحليل وحفظ المدرسة بالكامل!")
                 st.json(response.json())
+        else:
+            st.warning("يرجى كتابة نص يحتوي على 10 أحرف على الأقل.")
 
 # 6. رفع ملف المعرفة (RAG Ingest)
 elif menu == "📂 رفع ملفات وأدلة المدارس" and is_admin:
@@ -308,6 +308,8 @@ elif menu == "📂 رفع ملفات وأدلة المدارس" and is_admin:
                         if res.status_code == 200:
                             st.success(f"🎉 تم تفكيك وتكشيف ملف مدرسة ({selected_school_name}) بنجاح!")
                             st.json(res.json())
+                        else:
+                            st.error(f"فشل الرفع: {res.text}")
         else:
             st.warning("⚠️ لا توجد مدارس مسجلة.")
     except Exception as e:
